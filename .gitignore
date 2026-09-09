@@ -53,3 +53,18 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# GEFS build artifacts
+*.core
+gefs-fuse
+gefs-hello
+gefs-reader
+gefs-test
+mkfs.gefs
+fsck.gefs
+fsx
+
+# Test files & logs
+*.img
+*.log
+GEFS_STRESS_REPORT.txt

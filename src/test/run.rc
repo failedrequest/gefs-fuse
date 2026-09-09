@@ -1,0 +1,187 @@
+#!/bin/rc
+
+rfork e
+
+dev=$testdev
+if(~ $#testdev 0)
+	dev = testdev.fs
+switch($cputype){
+case amd64;	O=6
+case arm64;	O=7
+case arm;	O=5
+case 386;	O=8
+}
+
+fn sigexit sigint {
+	rm -f /srv/gefs.test /srv/gefs.test.cmd /srv/replay
+}
+
+fn die {
+	echo $* >[1=2]
+	exit $"*
+}
+
+fn log {
+	echo $* >[1=2]
+}
+
+fn ge_ream {
+	gefs -m 512 -r $user -f $1
+}
+
+fn ge_start {
+	gefs -m 512 -A -f $1 -n gefs.test
+	while(! test -e /srv/gefs.test)
+		sleep 0.1
+	mount -c /srv/gefs.test /n/gefs
+}
+
+fn ge_kill {
+	kill gefs | rc
+	while(test -e /srv/gefs.test)
+		sleep 0.1
+}
+
+fn ge_replay {@{
+	# prepare the test run
+	log reaming...
+	ge_ream $dev
+	log preparing replay...
+	rm -f replay.log
+	$O.freplay -l replay.log $dev
+	ge_start /mnt/replay/data
+	$*
+	echo save trace /tmp/trace >> /srv/gefs.test.cmd
+	sleep 5
+	ge_kill
+	cat /mnt/replay/ctl
+	count=`{awk '/writes/{print $2}' /mnt/replay/ctl}
+	log did $count writes.
+	echo exit > /mnt/replay/ctl 
+	while(test -e /srv/replay)
+		sleep 0.1
+
+	# check blockwise consistency
+	log starting replay...
+	$O.freplay -c 1 -r replay.log $dev
+	for(i in `{seq 2 $count}){
+		gefs -c -f /mnt/replay/data >[2]/tmp/log || die 'broken'
+		log stepping $i...
+		echo step > /mnt/replay/ctl
+	}
+	echo exit > /mnt/replay/ctl 
+	while(test -e /srv/replay)
+		sleep 0.1
+	exit ''
+}}
+
+fn ge_ok {@{
+	# prepare the test run
+	log reaming...
+	ge_ream $dev
+	log preparing build-and-verify...
+	$O.freplay -l replay.log $dev
+	ge_start $dev
+	$*
+	echo save trace /tmp/trace >> /srv/gefs.test.cmd
+	ge_kill
+	gefs -c -f $dev
+}}
+
+fn buildsys{@{
+	rfork ne
+	cd /n/gefs
+	. /sys/lib/rootstub
+	if(! test -e plan9front)
+		git/clone /dist/plan9front
+	bind -c $objtype/lib /$objtype/lib
+	bind -c plan9front/sys/include /sys/include
+	bind -c tmp /tmp
+	cd plan9front/sys/src
+	mk clean >> /tmp/gefsbuild.log
+	mk all >> /tmp/gefsbuild.log
+	echo save trace >> /srv/gefs.test.cmd
+	echo check >> /srv/gefs.test.cmd
+}}
+
+fn frobsnap {@{
+	rfork ne
+	sleep 1; echo snap main x >> /srv/gefs.test.cmd
+	sleep 1; dd -if /dev/zero -of /n/gefs/file0 -bs 16k -count 128
+	sleep 1; echo snap main y >> /srv/gefs.test.cmd;
+	sleep 1; dd -if /dev/zero -of /n/gefs/file1 -bs 16k -count 128
+	sleep 1; echo snap main z >> /srv/gefs.test.cmd;
+	sleep 1; rm /n/gefs/^(file0 file1);
+	sleep 1; echo snap -d y >> /srv/gefs.test.cmd;
+	sleep 1; echo check >> /srv/gefs.test.cmd
+	sleep 1; echo snap -d z >> /srv/gefs.test.cmd;
+	sleep 1; echo check >> /srv/gefs.test.cmd
+	sleep 1; echo snap -d x >> /srv/gefs.test.cmd;
+	sleep 1; echo check >> /srv/gefs.test.cmd
+}}
+
+fn buildgo {@{
+	rfork ne
+	GOROOT=/n/gefs/go
+	GOROOT_BOOTSTRAP=/n/gefs/go-plan9-amd64-bootstrap
+	go=go1.17.13-plan9-$cputype-bootstrap
+
+	cd /n/gefs
+	if(! test -e /tmp/$go.tbz){
+		echo getting https://9legacy.org/download/go/$go.tbz ...
+		hget -o /tmp/$go.tbz https://9legacy.org/download/go/$go.tbz
+	}
+	if(! test -e $GOROOT_BOOTSTRAP){
+		echo extracting /tmp/$go.tbz ...
+ 		bunzip2 -c /tmp/$go.tbz | tar x >[2]/dev/null
+	}
+	mkdir go
+	mkdir tmpw
+	dircp go-plan9-amd64-bootstrap go
+	bind -c tmp /tmp
+	cd go/src
+	./all.rc
+}}
+
+fn buildgefs {@{
+	cd /n/gefs
+	if(! test -e gefs)
+		git/clone $home/src/gefs
+	cd gefs
+	mk clean > /tmp/gefsbuild.log
+	mk all > /tmp/gefsbuild.log
+	echo check >> /srv/gefs.test.cmd
+}}
+
+fn buildgefs_slowrep {
+	for(i in `{seq $1}){
+		echo @@ buildgefs $i
+		buildgefs
+		sleep 10
+	}
+}
+
+fn fillfs {
+	dd -if /dev/zero -of /n/gefs/stuff
+}
+
+fn dotest {
+	rm -f /tmp/gefs.log /tmp/gefsbuild.log
+	echo $*
+	$* || die $status
+}
+
+if(! test -e $dev)
+	dd -if /dev/zero -of $dev -bs 1kk -count 2k 
+rm -f /srv/gefs.test /srv/gefs.test.cmd /srv/replay
+mk all
+@{cd test && mk all}
+
+dotest ge_replay frobsnap
+dotest ge_replay buildgefs_slowrep 50
+dotest ge_ok buildsys
+dotest ge_ok fillfs
+
+# disabled by default: go doesn't fit into a
+# small fs; make a bigger one for testing.
+#	dotest ge_ok buildgo

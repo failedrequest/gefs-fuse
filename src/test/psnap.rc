@@ -1,0 +1,45 @@
+#!/bin/rc -e
+
+
+srv=/srv/gefs
+if(~ $#* 1)
+	srv=$1
+
+fn cloneto {
+	echo clone to $1
+	@{cd /n/gefs.$1 && git/clone /dist/plan9front}
+	echo clone $1 done
+}
+
+fn buildin {
+	@{
+	rfork n
+	cd /n/gefs.$1/plan9front/
+	. /sys/lib/rootstub
+	bind -c sys/include /sys/include
+	bind -c $objtype/lib /$objtype/lib
+	bind -bc $objtype/bin /bin
+	bind -bc $objtype/bin /$objtype/bin
+	cd sys/src
+	mk all >[2=1] >/tmp/ptest.$1.log
+	}
+}
+
+echo 'create snap'
+echo 'snap -m empty test1' >> $srv.cmd
+echo 'snap -m empty test2' >> $srv.cmd
+echo 'sync' >> $srv.cmd
+mount -c $srv /n/gefs.a	test1
+mount -c $srv /n/gefs.b	test2
+
+echo 'clone repos'
+cloneto a &
+cloneto b &
+wait
+
+echo 'build repos'
+buildin a &
+buildin b &
+wait
+
+echo 'done'

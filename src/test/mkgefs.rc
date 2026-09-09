@@ -1,0 +1,8 @@
+#!/bin/rc
+
+@{cd .. && mk all}
+../6.out -r $user -f $1
+../6.out -n gefs.test -A -m 2048 -f $1
+
+mount -c /srv/gefs.test /n/gefs
+mount -c /srv/gefs.test /n/gefs.adm adm

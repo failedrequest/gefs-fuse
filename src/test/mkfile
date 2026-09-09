@@ -1,0 +1,16 @@
+</$objtype/mkfile
+
+TESTS=\
+	basic\
+	build\
+	files\
+
+all:V: 6.freplay 6.fsbench 6.files
+
+test:VQ:
+	@{cd .. && mk 6.out}
+	for(t in $TESTS){
+		echo $t...
+		./$t.rc >[2=1] >$t.log
+	}
+</sys/src/cmd/mktest

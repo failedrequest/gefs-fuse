@@ -1,0 +1,21 @@
+*** commit blockers ***
+- atomics for all archs
+- docs
+- ORCLOSE
+- clunk fids on connection
+
+*** important bits ***
+- repair tools
+
+*** nice to have, can go without ***
+- non-adm controlled snapshots
+- custom snapshot timing
+- reclaiming data from deleted files is very delayed
+- performance optimization:
+	- bulk block frees
+	- root block faster upsert
+- small file optimizations
+	- inline data
+
+*** probably not ***
+- transient exec snapshots
